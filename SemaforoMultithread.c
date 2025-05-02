@@ -8,14 +8,19 @@
 #define LED_RED 13
 #define LED_GREEN 11
 #define LED_BLUE 12
+#define BUTTON_A 5
 
 // Variável para indicar qual luz do semáforo está ativa
 uint semaforo_state = 0; // 0: Verde | 1: Amarelo | 2: Vermelho
 // Variáveis do PWM
 uint wrap = 2000;
 uint clkdiv = 125;
-// Variável para debounce do botão (armazena o último tempo)
-uint32_t last_time = 0;
+// Variáveis para debounce do botão 
+uint32_t last_time = 0; // Armazena o ultimo tempo
+bool last_button_state = false; // Armazena o ultimo estado do botao
+// Variável que controla o modo noturno
+bool night_mode = false;
+
 
 
 // FUNÇÕES AUXILIARES =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -50,6 +55,34 @@ void vTimerSemaforoTask(){
     }
 }
 
+// Task para leitura do botão A
+void vReadButtonTask(){
+    // Iniciando o pino do Botão A para as leituras
+    gpio_init(BUTTON_A);
+    gpio_set_dir(BUTTON_A, GPIO_IN);
+    gpio_pull_up(BUTTON_A);
+
+    while(true){
+        uint32_t current_time = to_us_since_boot(get_absolute_time()); // Pega o tempo atual (em us)
+        bool current_button_state = gpio_get(BUTTON_A); // Pega o estado atual do botao
+
+        if(!current_button_state && last_button_state && (current_time - last_time > 200000)){ // Pegando a borda de descida com debounce de 200ms
+            last_time = current_time; // Atualiza o ultimo tempo
+            night_mode = !night_mode; // Alterna o flag do modo noturno
+
+            // Logs para indicar o modo que está agora
+            if(night_mode){
+                printf("(MODE) NIGHT\n");
+            }
+            else{
+                printf("(MODE) NORMAL\n");
+            }
+        }
+
+        last_button_state = current_button_state; // Atualiza o ultimo estado do botão A
+        vTaskDelay(pdMS_TO_TICKS(100)); // Delay de 100ms para reduzir o uso de CPU
+    }
+}
 
 // Task para controlar o LED RGB do semáforo
 void vLedsRGBSemaforoTask(){
@@ -66,36 +99,51 @@ void vLedsRGBSemaforoTask(){
         pwm_set_gpio_level(LED_GREEN, 0);
         pwm_set_gpio_level(LED_BLUE, 0);
 
-        switch(semaforo_state){
-            // Cor VERDE
-            case 0:
-                // Alterna 1s on/1s off
-                pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
-                vTaskDelay(pdMS_TO_TICKS(1000));
-                pwm_set_gpio_level(LED_GREEN, 0);
-                vTaskDelay(pdMS_TO_TICKS(1000));
-                break;
-            
-            // Cor AMARELA
-            case 1:
-                // Alterna 0,5s on/0,5s of
-                // Amarelo = 0.5*verde + 0.5*vermelho
-                pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
-                pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
-                vTaskDelay(pdMS_TO_TICKS(500));
-                pwm_set_gpio_level(LED_GREEN, 0);
-                pwm_set_gpio_level(LED_RED, 0);
-                vTaskDelay(pdMS_TO_TICKS(500));
-                break;
-
-            // Cor VERMELHA
-            case 2:
-                // Alterna 0.5s on/1.5s off
-                pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
-                vTaskDelay(pdMS_TO_TICKS(500));
-                pwm_set_gpio_level(LED_RED, 0);
-                vTaskDelay(pdMS_TO_TICKS(1500));
-                break;
+        // Ações do modo noturno do semáforo
+        if(night_mode){
+            semaforo_state = 0; // Atualiza continuamente para o clico de cor verde do semáforo
+            // Alterna 2s on/2s of
+            // Amarelo = 0.5*verde + 0.5*vermelho
+            pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
+            pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            pwm_set_gpio_level(LED_GREEN, 0);
+            pwm_set_gpio_level(LED_RED, 0);
+            vTaskDelay(pdMS_TO_TICKS(2000));
+        }
+        // Modo normal do semáforo
+        else{
+            switch(semaforo_state){
+                // Cor VERDE
+                case 0:
+                    // Alterna 1s on/1s off
+                    pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                    pwm_set_gpio_level(LED_GREEN, 0);
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                    break;
+                
+                // Cor AMARELA
+                case 1:
+                    // Alterna 0,5s on/0,5s of
+                    // Amarelo = 0.5*verde + 0.5*vermelho
+                    pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
+                    pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    pwm_set_gpio_level(LED_GREEN, 0);
+                    pwm_set_gpio_level(LED_RED, 0);
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    break;
+    
+                // Cor VERMELHA
+                case 2:
+                    // Alterna 0.5s on/1.5s off
+                    pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    pwm_set_gpio_level(LED_RED, 0);
+                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    break;
+            }
         }
     }
 }
@@ -104,6 +152,7 @@ int main(){
     stdio_init_all();
 
     xTaskCreate(vTimerSemaforoTask, "Timer Semaforo Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+    xTaskCreate(vReadButtonTask, "Read Button Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vLedsRGBSemaforoTask, "Leds Semaforo Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     
 
