@@ -193,8 +193,6 @@ void vBuzzerTask(){
                     vTaskDelay(pdMS_TO_TICKS(1500));
                     break;
             }
-
-            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 }
