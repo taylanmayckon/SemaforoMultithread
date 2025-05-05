@@ -9,17 +9,23 @@
 #define LED_GREEN 11
 #define LED_BLUE 12
 #define BUTTON_A 5
+#define BUZZER_A 21 
+#define BUZZER_B 10
 
 // Variável para indicar qual luz do semáforo está ativa
 uint semaforo_state = 0; // 0: Verde | 1: Amarelo | 2: Vermelho
-// Variáveis do PWM
+// Variáveis do PWM (setado para freq de 625 Hz)
 uint wrap = 2000;
-uint clkdiv = 125;
+uint clkdiv = 50;
 // Variáveis para debounce do botão 
 uint32_t last_time = 0; // Armazena o ultimo tempo do botao
 bool last_button_state = false; // Armazena o ultimo estado do botao
 // Variável que controla o modo noturno
 bool night_mode = false;
+// Tempos de cada cor no semáforo (em ms)
+uint green_time = 15000;
+uint yellow_time = 5000;
+uint red_time = 10000;
 
 
 // FUNÇÕES AUXILIARES =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -37,11 +43,6 @@ void set_pwm(uint gpio, uint wrap){
 // TASKS UTILIZADAS NO CÓDIGO =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // Task para controlar a temporização do semáforo
 void vTimerSemaforoTask(){
-    // Tempos de cada cor no semáforo (em ms)
-    uint green_time = 15000;
-    uint yellow_time = 5000;
-    uint red_time = 15000;
-
     while(true){
         semaforo_state = 0;
         vTaskDelay(pdMS_TO_TICKS(green_time));
@@ -75,6 +76,7 @@ void vReadButtonTask(){
             }
             else{
                 printf("(MODE) NORMAL\n");
+                semaforo_state = 0; // Na volta para o modo normal retorna para a cor verde
             }
         }
 
@@ -113,12 +115,6 @@ void vLedsRGBSemaforoTask(){
                     pwm_set_gpio_level(LED_RED, 0);
                     pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
                     pwm_set_gpio_level(LED_BLUE, 0);
-                    /*
-                    // Alterna 1s on/1s off
-                    vTaskDelay(pdMS_TO_TICKS(1000));
-                    pwm_set_gpio_level(LED_GREEN, 0);
-                    vTaskDelay(pdMS_TO_TICKS(1000));
-                    */
                     break;
                 
                 // Cor AMARELA
@@ -126,14 +122,6 @@ void vLedsRGBSemaforoTask(){
                     pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
                     pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
                     pwm_set_gpio_level(LED_BLUE, 0);
-                    /*
-                    // Alterna 0,5s on/0,5s of
-                    // Amarelo = 0.5*verde + 0.5*vermelho
-                    vTaskDelay(pdMS_TO_TICKS(500));
-                    pwm_set_gpio_level(LED_GREEN, 0);
-                    pwm_set_gpio_level(LED_RED, 0);
-                    vTaskDelay(pdMS_TO_TICKS(500));
-                    */
                     break;
     
                 // Cor VERMELHA
@@ -141,12 +129,6 @@ void vLedsRGBSemaforoTask(){
                     pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
                     pwm_set_gpio_level(LED_GREEN, 0);
                     pwm_set_gpio_level(LED_BLUE, 0);
-                    /*
-                    // Alterna 0.5s on/1.5s off
-                    vTaskDelay(pdMS_TO_TICKS(500));
-                    pwm_set_gpio_level(LED_RED, 0);
-                    vTaskDelay(pdMS_TO_TICKS(1500));
-                    */
                     break;
             }
         }
@@ -155,12 +137,77 @@ void vLedsRGBSemaforoTask(){
     }
 }
 
+
+// Task para controlar o buzzer
+void vBuzzerTask(){
+    // Iniciando o PWM dos buzzers
+    set_pwm(BUZZER_A, wrap);
+    set_pwm(BUZZER_B, wrap);
+
+    while(true){
+
+        // Modo noturno
+        if(night_mode){
+            // Aciona os buzzers durante 200ms
+            pwm_set_gpio_level(BUZZER_A, wrap*0.4);
+            pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+            vTaskDelay(pdMS_TO_TICKS(200));
+            // Desativa ambos e espera 3600ms
+            pwm_set_gpio_level(BUZZER_A, 0);
+            pwm_set_gpio_level(BUZZER_B, 0);
+            vTaskDelay(pdMS_TO_TICKS(3800));
+        }
+        // Modo normal
+        else{
+            switch(semaforo_state){
+                // Cor verde
+                case 0:
+                    // Alterna 1s on/restante do tempo off
+                    pwm_set_gpio_level(BUZZER_A, wrap*0.4);
+                    pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                    pwm_set_gpio_level(BUZZER_A, 0);
+                    pwm_set_gpio_level(BUZZER_B, 0);
+                    vTaskDelay(pdMS_TO_TICKS(green_time-1000));
+                    break;
+
+                // Cor amarela
+                case 1:
+                    // Alterna 0,5s on/0,5s of
+                    pwm_set_gpio_level(BUZZER_A, wrap*0.4);
+                    pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    pwm_set_gpio_level(BUZZER_A, 0);
+                    pwm_set_gpio_level(BUZZER_B, 0);
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    break;
+
+                // Cor vermelha
+                case 2:
+                    // Alterna 0.5s on/1.5s off
+                    pwm_set_gpio_level(BUZZER_A, wrap*0.4);
+                    pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    pwm_set_gpio_level(BUZZER_A, 0);
+                    pwm_set_gpio_level(BUZZER_B, 0);
+                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    break;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+}
+
+
 int main(){
     stdio_init_all();
 
     xTaskCreate(vTimerSemaforoTask, "Timer Semaforo Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vReadButtonTask, "Read Button Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vLedsRGBSemaforoTask, "Leds Semaforo Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+    xTaskCreate(vBuzzerTask, "Buzzer Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+    
     
 
     vTaskStartScheduler();
