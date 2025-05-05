@@ -16,11 +16,10 @@ uint semaforo_state = 0; // 0: Verde | 1: Amarelo | 2: Vermelho
 uint wrap = 2000;
 uint clkdiv = 125;
 // Variáveis para debounce do botão 
-uint32_t last_time = 0; // Armazena o ultimo tempo
+uint32_t last_time = 0; // Armazena o ultimo tempo do botao
 bool last_button_state = false; // Armazena o ultimo estado do botao
 // Variável que controla o modo noturno
 bool night_mode = false;
-
 
 
 // FUNÇÕES AUXILIARES =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -94,11 +93,6 @@ void vLedsRGBSemaforoTask(){
     float led_luminosity = 0.05; // Intensidade dos LEDs
 
     while(true){
-        // Desativando todos os LEDs antes da próxima ação
-        pwm_set_gpio_level(LED_RED, 0);
-        pwm_set_gpio_level(LED_GREEN, 0);
-        pwm_set_gpio_level(LED_BLUE, 0);
-
         // Ações do modo noturno do semáforo
         if(night_mode){
             semaforo_state = 0; // Atualiza continuamente para o clico de cor verde do semáforo
@@ -116,35 +110,48 @@ void vLedsRGBSemaforoTask(){
             switch(semaforo_state){
                 // Cor VERDE
                 case 0:
-                    // Alterna 1s on/1s off
+                    pwm_set_gpio_level(LED_RED, 0);
                     pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
+                    pwm_set_gpio_level(LED_BLUE, 0);
+                    /*
+                    // Alterna 1s on/1s off
                     vTaskDelay(pdMS_TO_TICKS(1000));
                     pwm_set_gpio_level(LED_GREEN, 0);
                     vTaskDelay(pdMS_TO_TICKS(1000));
+                    */
                     break;
                 
                 // Cor AMARELA
                 case 1:
+                    pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
+                    pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
+                    pwm_set_gpio_level(LED_BLUE, 0);
+                    /*
                     // Alterna 0,5s on/0,5s of
                     // Amarelo = 0.5*verde + 0.5*vermelho
-                    pwm_set_gpio_level(LED_GREEN, led_luminosity*wrap);
-                    pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
                     vTaskDelay(pdMS_TO_TICKS(500));
                     pwm_set_gpio_level(LED_GREEN, 0);
                     pwm_set_gpio_level(LED_RED, 0);
                     vTaskDelay(pdMS_TO_TICKS(500));
+                    */
                     break;
     
                 // Cor VERMELHA
                 case 2:
-                    // Alterna 0.5s on/1.5s off
                     pwm_set_gpio_level(LED_RED, led_luminosity*wrap);
+                    pwm_set_gpio_level(LED_GREEN, 0);
+                    pwm_set_gpio_level(LED_BLUE, 0);
+                    /*
+                    // Alterna 0.5s on/1.5s off
                     vTaskDelay(pdMS_TO_TICKS(500));
                     pwm_set_gpio_level(LED_RED, 0);
                     vTaskDelay(pdMS_TO_TICKS(1500));
+                    */
                     break;
             }
         }
+
+        vTaskDelay(10);
     }
 }
 
