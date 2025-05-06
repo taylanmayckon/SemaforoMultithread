@@ -33,6 +33,8 @@ bool night_mode = false;
 uint green_time = 15000;
 uint yellow_time = 5000;
 uint red_time = 10000;
+// Booleano para a ativação do buzzer verde
+bool buzzer_green = true;
 // Index do frame que será exibido na matriz de leds
 uint green_frame_index = 0;
 // Intensidade da cor na matriz de leds (funciona apenas para vermelho e amarelo)
@@ -64,6 +66,7 @@ void vTimerSemaforoTask(){
 
         semaforo_state = 2;
         vTaskDelay(pdMS_TO_TICKS(red_time));
+        buzzer_green = true; // Engatilha o buzzer da luz verde novamente
     }
 }
 
@@ -92,6 +95,7 @@ void vReadButtonTask(){
                 green_frame_index=0; // Retorna para o frame 0 da animação da luz verde
                 matrix_intensity_step=10; // Retorna para 10% de intensidade na matriz de leds (cores vermelho e amarelo)
                 matrix_intensity_rising=false; // Indica que a intensidade tem que descer
+                buzzer_green = true; // Engatilha o buzzer da luz verde
             }
         }
 
@@ -159,6 +163,9 @@ void vBuzzerTask(){
     set_pwm(BUZZER_A, wrap);
     set_pwm(BUZZER_B, wrap);
 
+    // Booleano que indica quando deve ter o buzzer do sinal verde
+    buzzer_green = true;
+
     while(true){
 
         // Modo noturno
@@ -171,30 +178,35 @@ void vBuzzerTask(){
             pwm_set_gpio_level(BUZZER_A, 0);
             pwm_set_gpio_level(BUZZER_B, 0);
             vTaskDelay(pdMS_TO_TICKS(3800));
+            bool buzzer_green = true ; // Deixa o buzzer pronto para ser acionado na cor verde
         }
         // Modo normal
         else{
             switch(semaforo_state){
                 // Cor verde
                 case 0:
-                    // Alterna 1s on/restante do tempo off
-                    pwm_set_gpio_level(BUZZER_A, wrap*0.05);
-                    pwm_set_gpio_level(BUZZER_B, wrap*0.05);
+                    // Alterna 1s on/restante do tempo off, graças ao booleano
+                    if(buzzer_green){
+                        pwm_set_gpio_level(BUZZER_A, wrap*0.05);
+                        pwm_set_gpio_level(BUZZER_B, wrap*0.05);
+                        buzzer_green=false; // Desaciona o buzzer para os segundos seguintes da luz verde
+                    }
+                    else{
+                        pwm_set_gpio_level(BUZZER_A, 0);
+                        pwm_set_gpio_level(BUZZER_B, 0);
+                    }
                     vTaskDelay(pdMS_TO_TICKS(1000));
-                    pwm_set_gpio_level(BUZZER_A, 0);
-                    pwm_set_gpio_level(BUZZER_B, 0);
-                    vTaskDelay(pdMS_TO_TICKS(green_time-1000));
                     break;
 
                 // Cor amarela
                 case 1:
-                    // Alterna 0,5s on/0,5s of
+                    // Alterna 0,25s on/0,25s of
                     pwm_set_gpio_level(BUZZER_A, wrap*0.05);
                     pwm_set_gpio_level(BUZZER_B, wrap*0.05);
-                    vTaskDelay(pdMS_TO_TICKS(500));
+                    vTaskDelay(pdMS_TO_TICKS(250));
                     pwm_set_gpio_level(BUZZER_A, 0);
                     pwm_set_gpio_level(BUZZER_B, 0);
-                    vTaskDelay(pdMS_TO_TICKS(500));
+                    vTaskDelay(pdMS_TO_TICKS(250));
                     break;
 
                 // Cor vermelha
@@ -205,7 +217,7 @@ void vBuzzerTask(){
                     vTaskDelay(pdMS_TO_TICKS(500));
                     pwm_set_gpio_level(BUZZER_A, 0);
                     pwm_set_gpio_level(BUZZER_B, 0);
-                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    vTaskDelay(pdMS_TO_TICKS(1500)); 
                     break;
             }
         }
