@@ -30,10 +30,13 @@ pico_sdk_init()
 
 include_directories(${CMAKE_SOURCE_DIR}/lib)
 
-add_executable(SemaforoMultithread SemaforoMultithread.c )
+add_executable(SemaforoMultithread SemaforoMultithread.c lib/led_matrix.c)
 
 pico_set_program_name(SemaforoMultithread "SemaforoMultithread")
 pico_set_program_version(SemaforoMultithread "0.1")
+
+# Adicionando o arquivo PIO
+pico_generate_pio_header(SemaforoMultithread ${CMAKE_CURRENT_LIST_DIR}/lib/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/generated)
 
 pico_enable_stdio_uart(SemaforoMultithread 1)
 pico_enable_stdio_usb(SemaforoMultithread 1)
@@ -41,6 +44,8 @@ pico_enable_stdio_usb(SemaforoMultithread 1)
 target_link_libraries(SemaforoMultithread
         pico_stdlib
         hardware_pwm
+        hardware_pio
+        hardware_clocks
         FreeRTOS-Kernel 
         FreeRTOS-Kernel-Heap4)
 

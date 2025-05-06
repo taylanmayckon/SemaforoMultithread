@@ -4,6 +4,7 @@
 #include "FreeRTOS.h"
 #include "FreeRTOSConfig.h"
 #include "task.h"
+#include "led_matrix.h"
 
 #define LED_RED 13
 #define LED_GREEN 11
@@ -11,12 +12,18 @@
 #define BUTTON_A 5
 #define BUZZER_A 21 
 #define BUZZER_B 10
+// Constantes para a matriz de leds
+#define IS_RGBW false
+#define LED_MATRIX_PIN 7
 
+// Variáveis da PIO declaradas no escopo global
+PIO pio;
+uint sm;
 // Variável para indicar qual luz do semáforo está ativa
 uint semaforo_state = 0; // 0: Verde | 1: Amarelo | 2: Vermelho
-// Variáveis do PWM (setado para freq de 625 Hz)
+// Variáveis do PWM (setado para freq. de 312,5 Hz)
 uint wrap = 2000;
-uint clkdiv = 50;
+uint clkdiv = 25;
 // Variáveis para debounce do botão 
 uint32_t last_time = 0; // Armazena o ultimo tempo do botao
 bool last_button_state = false; // Armazena o ultimo estado do botao
@@ -26,6 +33,11 @@ bool night_mode = false;
 uint green_time = 15000;
 uint yellow_time = 5000;
 uint red_time = 10000;
+// Index do frame que será exibido na matriz de leds
+uint green_frame_index = 0;
+// Intensidade da cor na matriz de leds (funciona apenas para vermelho e amarelo)
+int matrix_intensity_step = 10;
+bool matrix_intensity_rising = false;
 
 
 // FUNÇÕES AUXILIARES =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -77,6 +89,9 @@ void vReadButtonTask(){
             else{
                 printf("(MODE) NORMAL\n");
                 semaforo_state = 0; // Na volta para o modo normal retorna para a cor verde
+                green_frame_index=0; // Retorna para o frame 0 da animação da luz verde
+                matrix_intensity_step=10; // Retorna para 10% de intensidade na matriz de leds (cores vermelho e amarelo)
+                matrix_intensity_rising=false; // Indica que a intensidade tem que descer
             }
         }
 
@@ -149,8 +164,8 @@ void vBuzzerTask(){
         // Modo noturno
         if(night_mode){
             // Aciona os buzzers durante 200ms
-            pwm_set_gpio_level(BUZZER_A, wrap*0.4);
-            pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+            pwm_set_gpio_level(BUZZER_A, wrap*0.05);
+            pwm_set_gpio_level(BUZZER_B, wrap*0.05);
             vTaskDelay(pdMS_TO_TICKS(200));
             // Desativa ambos e espera 3600ms
             pwm_set_gpio_level(BUZZER_A, 0);
@@ -163,8 +178,8 @@ void vBuzzerTask(){
                 // Cor verde
                 case 0:
                     // Alterna 1s on/restante do tempo off
-                    pwm_set_gpio_level(BUZZER_A, wrap*0.4);
-                    pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+                    pwm_set_gpio_level(BUZZER_A, wrap*0.05);
+                    pwm_set_gpio_level(BUZZER_B, wrap*0.05);
                     vTaskDelay(pdMS_TO_TICKS(1000));
                     pwm_set_gpio_level(BUZZER_A, 0);
                     pwm_set_gpio_level(BUZZER_B, 0);
@@ -174,8 +189,8 @@ void vBuzzerTask(){
                 // Cor amarela
                 case 1:
                     // Alterna 0,5s on/0,5s of
-                    pwm_set_gpio_level(BUZZER_A, wrap*0.4);
-                    pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+                    pwm_set_gpio_level(BUZZER_A, wrap*0.05);
+                    pwm_set_gpio_level(BUZZER_B, wrap*0.05);
                     vTaskDelay(pdMS_TO_TICKS(500));
                     pwm_set_gpio_level(BUZZER_A, 0);
                     pwm_set_gpio_level(BUZZER_B, 0);
@@ -185,12 +200,99 @@ void vBuzzerTask(){
                 // Cor vermelha
                 case 2:
                     // Alterna 0.5s on/1.5s off
-                    pwm_set_gpio_level(BUZZER_A, wrap*0.4);
-                    pwm_set_gpio_level(BUZZER_B, wrap*0.4);
+                    pwm_set_gpio_level(BUZZER_A, wrap*0.05);
+                    pwm_set_gpio_level(BUZZER_B, wrap*0.05);
                     vTaskDelay(pdMS_TO_TICKS(500));
                     pwm_set_gpio_level(BUZZER_A, 0);
                     pwm_set_gpio_level(BUZZER_B, 0);
                     vTaskDelay(pdMS_TO_TICKS(1500));
+                    break;
+            }
+        }
+    }
+}
+
+// Task para controlar a matriz de leds
+void vLedMatrixTask(){
+    // Inicializando a PIO
+    pio = pio0;
+    sm = 0;
+    uint offset = pio_add_program(pio, &ws2812_program);
+    ws2812_program_init(pio, sm, offset, LED_MATRIX_PIN, 800000, IS_RGBW);
+
+    float matrix_intensity;
+
+    while(true){
+        // Modo noturno
+        if(night_mode){
+            matrix_intensity = 0.01*matrix_intensity_step;
+            yellow_animation(matrix_intensity);
+            // Animação de pulsar o desenho na matriz de leds
+            if(matrix_intensity_rising){ 
+                matrix_intensity_step++;
+                if(matrix_intensity_step==10){
+                    matrix_intensity_rising=false;
+                }
+            }
+            else{
+                matrix_intensity_step--;
+                if(matrix_intensity_step==0){
+                    matrix_intensity_rising=true;
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        // Modo normal
+        else{
+            switch(semaforo_state){
+                // Cor verde
+                case 0:
+                    green_animation(green_frame_index);
+                    green_frame_index++; // Incrementa o index do frame
+                    if(green_frame_index>5){ // Limita a no máximo 5 (são 6 frames)
+                        green_frame_index=0;
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(200));
+                    break;
+    
+                // Cor amarela
+                case 1:
+                    matrix_intensity = 0.01*matrix_intensity_step;
+                    yellow_animation(matrix_intensity);
+                    // Animação de pulsar o desenho na matriz de leds
+                    if(matrix_intensity_rising){ 
+                        matrix_intensity_step++;
+                        if(matrix_intensity_step==10){
+                            matrix_intensity_rising=false;
+                        }
+                    }
+                    else{
+                        matrix_intensity_step--;
+                        if(matrix_intensity_step==0){
+                            matrix_intensity_rising=true;
+                        }
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                    break;
+    
+                // Cor vermelha
+                case 2:
+                    matrix_intensity = 0.005*matrix_intensity_step;
+                    red_animation(matrix_intensity);
+                    // Animação de pulsar o desenho na matriz de leds
+                    if(matrix_intensity_rising){ 
+                        matrix_intensity_step++;
+                        if(matrix_intensity_step==10){
+                            matrix_intensity_rising=false;
+                        }
+                    }
+                    else{
+                        matrix_intensity_step--;
+                        if(matrix_intensity_step==0){
+                            matrix_intensity_rising=true;
+                        }
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(50));
                     break;
             }
         }
@@ -205,7 +307,7 @@ int main(){
     xTaskCreate(vReadButtonTask, "Read Button Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vLedsRGBSemaforoTask, "Leds Semaforo Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vBuzzerTask, "Buzzer Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
-    
+    xTaskCreate(vLedMatrixTask, "Led Matrix Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     
 
     vTaskStartScheduler();
