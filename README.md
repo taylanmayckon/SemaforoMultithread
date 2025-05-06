@@ -10,16 +10,21 @@ Este projeto é a Atividade 3 da Fase 2 do EmbarcaTech. Consiste no desenvolvime
 
 ---
 
-## 🛠 **Hardware Utilizado**
+## 🛠 **Recursos Utilizados**
 
-- **Placa BitDogLab**
+- **FreeRTOS:** é um sistema operacional de código aberto e tempo real (RTOS) projetado para microcontroladores e dispositivos embarcados. Ele permite a criação de diferentes tarefas e faz o gerenciamento das mesmas para serem executadas de forma paralela.
+- **Display OLED:** foi utilizado o ssd1306, que possui 128x64 pixels, para informações visuais sobre o estado atual do semáforo e também o tempo restante de cada etapa do semáforo.
+- **Matriz de LEDs Endereçáveis:**
+- **Leitura de botões:** Foi utilizado pooling em uma das Tasks do código
+- **LED RGB:**
+- **Buzzers:**
 
 ---
 
 ## 📂 **Estrutura do Código**
 
 ```
-📂 PixelTracker/
+📂 SemaforoMultithread/
 ├── 📄 SemaforoMultithread.c           # Código principal do projeto
 ├──── 📂lib
 ├───── 📄 FreeRTOSConfig.h             # Arquivos de configuração para o FreeRTOS
