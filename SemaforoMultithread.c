@@ -1,11 +1,15 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
+#include "hardware/i2c.h"
 #include "FreeRTOS.h"
 #include "FreeRTOSConfig.h"
 #include "task.h"
 #include "led_matrix.h"
+#include "lib/ssd1306.h"
+#include "lib/font.h"
 
+// LED RGB, botão e buzzers
 #define LED_RED 13
 #define LED_GREEN 11
 #define LED_BLUE 12
@@ -15,7 +19,14 @@
 // Constantes para a matriz de leds
 #define IS_RGBW false
 #define LED_MATRIX_PIN 7
+// Definições da I2C
+#define I2C_PORT i2c1
+#define I2C_SDA 14
+#define I2C_SCL 15
+#define endereco 0x3C
 
+// Booleano para indicar se vai imprimir branco no display
+bool cor = true;
 // Variáveis da PIO declaradas no escopo global
 PIO pio;
 uint sm;
@@ -30,9 +41,9 @@ bool last_button_state = false; // Armazena o ultimo estado do botao
 // Variável que controla o modo noturno
 bool night_mode = false;
 // Tempos de cada cor no semáforo (em ms)
-uint green_time = 15000;
-uint yellow_time = 5000;
-uint red_time = 10000;
+const uint green_time = 15000;
+const uint yellow_time = 5000;
+const uint red_time = 10000;
 // Booleano para a ativação do buzzer verde
 bool buzzer_green = true;
 // Index do frame que será exibido na matriz de leds
@@ -40,6 +51,13 @@ uint green_frame_index = 0;
 // Intensidade da cor na matriz de leds (funciona apenas para vermelho e amarelo)
 int matrix_intensity_step = 10;
 bool matrix_intensity_rising = false;
+// String para armazenar o tempo restante do semáforo
+char converted_num; // Armazena um dígito
+char converted_string[3]; // Armazena o número convertido (2 dígitos)
+// Contadores para o display
+uint green_count = green_time/1000;
+uint yellow_count = yellow_time/1000;
+uint red_count = red_time/1000;
 
 
 // FUNÇÕES AUXILIARES =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -53,11 +71,38 @@ void set_pwm(uint gpio, uint wrap){
     pwm_set_gpio_level(gpio, 0);
 }
 
+// Função que converte int para char
+void int_2_char(int num, char *out){
+    *out = '0' + num;
+}
+
+void int_2_string(int num){
+    if(num<9){ // Gera string para as menores que 10
+        int_2_char(num, &converted_num); // Converte o dígito à direita do número para char
+        converted_string[0] = '0'; // Char para melhorar o visual
+        converted_string[1] = converted_num; // Int convertido para char
+        converted_string[2] = '\0'; // Terminador nulo da String 
+    }
+    else{ // Gera a string para as maiores/iguais que 10
+        int divider = num/10; // Obtém as dezenas
+        int_2_char(divider, &converted_num);
+        converted_string[0] = converted_num;
+
+        int_2_char(num%10, &converted_num); // Obtém a parte das unidades
+        converted_string[1] = converted_num; // Int convertido para char
+        converted_string[2] = '\0'; // Terminador nulo da String
+    }
+}
+
 
 // TASKS UTILIZADAS NO CÓDIGO =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // Task para controlar a temporização do semáforo
 void vTimerSemaforoTask(){
     while(true){
+        red_count = red_time/1000; // Reseta o contador vermelho do display
+        green_count = green_time/1000; // Reseta o contador verde do display
+        yellow_count = yellow_time/1000; // Reseta o contador amarelo do display
+            
         semaforo_state = 0;
         vTaskDelay(pdMS_TO_TICKS(green_time));
 
@@ -66,6 +111,7 @@ void vTimerSemaforoTask(){
 
         semaforo_state = 2;
         vTaskDelay(pdMS_TO_TICKS(red_time));
+
         buzzer_green = true; // Engatilha o buzzer da luz verde novamente
     }
 }
@@ -224,6 +270,106 @@ void vBuzzerTask(){
     }
 }
 
+// Task para controle do Display OLED
+void vDisplayOLEDTask(){
+    // Configurando a I2C
+    i2c_init(I2C_PORT, 400 * 1000);
+
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);                    // Set the GPIO pin function to I2C
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);                    // Set the GPIO pin function to I2C
+    gpio_pull_up(I2C_SDA);                                        // Pull up the data line
+    gpio_pull_up(I2C_SCL);                                        // Pull up the clock line
+    ssd1306_t ssd;                                                // Inicializa a estrutura do display
+    ssd1306_init(&ssd, WIDTH, HEIGHT, false, endereco, I2C_PORT); // Inicializa o display
+    ssd1306_config(&ssd);                                         // Configura o display
+    ssd1306_send_data(&ssd);                                      // Envia os dados para o display
+    // Limpa o display. O display inicia com todos os pixels apagados.
+    ssd1306_fill(&ssd, false);
+    ssd1306_send_data(&ssd);
+
+    while(true){
+        ssd1306_fill(&ssd, false); // Limpa o display
+
+        // Frame que será reutilizado para todos
+        ssd1306_rect(&ssd, 0, 0, 128, 64, cor, !cor);
+        // Nome superior
+        ssd1306_rect(&ssd, 0, 0, 128, 12, cor, cor); // Fundo preenchido
+        ssd1306_draw_string(&ssd, "SEMAFORO", 4, 3, true); // String: Semaforo
+        ssd1306_draw_string(&ssd, "TM", 107, 3, true);
+        // Modo
+        ssd1306_draw_string(&ssd, "MODO:", 4, 16, false);
+        // Cor
+        ssd1306_draw_string(&ssd, "COR:", 4, 28, false);
+        // Borda do tempo
+        ssd1306_rect(&ssd, 48, 100, 26, 8, cor, !cor);
+
+        // Modo noturno
+        if(night_mode){
+            // Modo
+            ssd1306_draw_string(&ssd, "NOTURNO", 48, 16, false);
+            // Cor
+            ssd1306_draw_string(&ssd, "AMARELO", 48, 28, false);
+            // Mensagem
+            ssd1306_draw_string(&ssd, "ATENCAO", 4, 48, false);
+            // Tempo
+            ssd1306_draw_string(&ssd, "!", 109, 48, false);
+
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        // Modo normal
+        else{
+            switch(semaforo_state){
+                // Luz verde
+                case 0:
+                    // Modo
+                    ssd1306_draw_string(&ssd, "NORMAL", 48, 16, false);
+                    // Cor
+                    ssd1306_draw_string(&ssd, "VERDE", 48, 28, false);
+                    // Mensagem
+                    ssd1306_draw_string(&ssd, "LIBERADO", 4, 48, false);
+                    // Tempo
+                    green_count--; 
+                    int_2_string(green_count);
+                    ssd1306_draw_string(&ssd, converted_string, 105, 48, false);
+                    break;
+
+                // Luz amarela
+                case 1:
+                    // Modo
+                    ssd1306_draw_string(&ssd, "NORMAL", 48, 16, false);
+                    // Cor
+                    ssd1306_draw_string(&ssd, "AMARELO", 48, 28, false);
+                    // Mensagem
+                    ssd1306_draw_string(&ssd, "ATENCAO", 4, 48, false);
+                    // Tempo
+                    yellow_count--; 
+                    int_2_string(yellow_count);
+                    ssd1306_draw_string(&ssd, converted_string, 105, 48, false);
+                    break;
+
+                // Luz vermelha
+                case 2:
+                    // Modo
+                    ssd1306_draw_string(&ssd, "NORMAL", 48, 16, false);
+                    // Cor
+                    ssd1306_draw_string(&ssd, "VERMELHA", 48, 28, false);
+                    // Mensagem
+                    ssd1306_draw_string(&ssd, "PARE!", 4, 48, false);
+                    // Tempo
+                    red_count--; 
+                    int_2_string(red_count);
+                    ssd1306_draw_string(&ssd, converted_string, 105, 48, false);
+                    // Decrementa o contador de tempo a cada 1s
+                    break;
+            }
+            vTaskDelay(1000);
+        }
+
+        ssd1306_send_data(&ssd); // Envia os dados para o display, atualizando o mesmo
+    }
+}
+
 // Task para controlar a matriz de leds
 void vLedMatrixTask(){
     // Inicializando a PIO
@@ -318,9 +464,9 @@ int main(){
     xTaskCreate(vTimerSemaforoTask, "Timer Semaforo Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vReadButtonTask, "Read Button Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vLedsRGBSemaforoTask, "Leds Semaforo Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+    xTaskCreate(vDisplayOLEDTask, "Display OLED Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vBuzzerTask, "Buzzer Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vLedMatrixTask, "Led Matrix Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
-    
 
     vTaskStartScheduler();
     panic_unsupported();

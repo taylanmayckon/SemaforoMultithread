@@ -30,7 +30,7 @@ pico_sdk_init()
 
 include_directories(${CMAKE_SOURCE_DIR}/lib)
 
-add_executable(SemaforoMultithread SemaforoMultithread.c lib/led_matrix.c)
+add_executable(SemaforoMultithread SemaforoMultithread.c lib/led_matrix.c lib/ssd1306.c)
 
 pico_set_program_name(SemaforoMultithread "SemaforoMultithread")
 pico_set_program_version(SemaforoMultithread "0.1")
@@ -45,6 +45,7 @@ target_link_libraries(SemaforoMultithread
         pico_stdlib
         hardware_pwm
         hardware_pio
+        hardware_i2c
         hardware_clocks
         FreeRTOS-Kernel 
         FreeRTOS-Kernel-Heap4)
